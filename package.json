@@ -29,9 +29,8 @@
   },
   "dependencies": {
     "axios": "0.18.0",
+    "commonmark": "^0.29.0",
     "glob": "^7.1.4",
-    "image-downloader": "^3.4.2",
-    "markdown-it": "^8.4.2",
     "mkdirp": "^0.5.1",
     "webpack-dev-middleware": "^3.6.0"
   }
