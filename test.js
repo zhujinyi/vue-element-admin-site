@@ -5,6 +5,8 @@ const mkdirp = require('mkdirp')
 const glob = require('glob')
 const commonMark = require('commonmark')
 const Listr = require('listr')
+const Table = require('cli-table')
+const chalk = require('chalk')
 
 const outputDir = './images'
 const inputDir = './docs/zh'
@@ -15,22 +17,25 @@ mkdirp(outputDir, function(err) {
   }
 })
 
-async function downloadImage(url) {
-  const s = url.split('/')
-  const name = s[s.length - 1]
-  const writer = fs.createWriteStream(`${outputDir}/${name}`)
+function downloadImage(url) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const s = url.split('/')
+      const name = s[s.length - 1]
+      const writer = fs.createWriteStream(`${outputDir}/${name}`)
 
-  const response = await axios({
-    url,
-    method: 'GET',
-    responseType: 'stream'
-  })
+      const response = await axios({
+        url,
+        method: 'GET',
+        responseType: 'stream'
+      })
 
-  response.data.pipe(writer)
-
-  return new Promise((resolve, reject) => {
-    writer.on('finish', resolve)
-    writer.on('error', reject)
+      response.data.pipe(writer)
+      writer.on('finish', resolve)
+      writer.on('error', reject)
+    } catch (error) {
+      reject(error)
+    }
   })
 }
 
@@ -67,7 +72,7 @@ const readFile = file => {
 
       const images = getAllImg(data)
       if (images) {
-        resolve(images.uniqueSrcList)
+        setTimeout(() => resolve(images.uniqueSrcList), 2000)
       }
     })
   })
@@ -81,41 +86,102 @@ async function generate() {
         cwd: path.resolve(process.cwd(), inputDir)
       },
       async function(er, files) {
-        let imgs = []
-
+        let success = 0
+        const errorArr = []
         const tasksList = files.map(file => {
-          // console.log(file)
-          // console.log('file')
           return {
             title: file,
-            task: async ctx => {
-              try {
-                const data = await readFile(`${inputDir}/${file}`)
-                imgs = imgs.concat(data)
-                return data
-              } catch (error) {
-                throw new Error(error)
-              }
+            task: () => {
+              return new Promise((resolve, reject) => {
+                try {
+                  const dir = `${inputDir}/${file}`
+                  readFile(dir).then(async data => {
+                    const promises = []
+                    for (const url of data) {
+                      promises.push(downloadImage(url))
+                    }
+                    allSettled(promises).then(results => {
+                      results.forEach(result => {
+                        const { status } = result
+                        if (status === 'fulfilled') {
+                          success++
+                        } else {
+                          errorArr.push({
+                            file: dir,
+                            url: result.reason.config.url
+                          })
+                          // console.log(result)
+                        }
+                      })
+                      resolve(file)
+                    })
+                  })
+                } catch (error) {
+                  reject(error)
+                  throw new Error(error)
+                }
+              })
             }
           }
         })
 
         const tasks = new Listr(tasksList, {
-          exitOnError: false
+          exitOnError: false,
+          concurrent: true
+          // renderer: "verbose"
         })
 
-        tasks.run()
+        tasks.run().then(() => {
+          console.log(chalk.greenBright(`Success download images: ${success}`))
+          console.log(
+            chalk.redBright(`Error download images: ${errorArr.length}`)
+          )
 
-        imgs = [...new Set(imgs)]
+          if (errorArr.length > 0) {
+            const table = new Table({
+              head: ['File', 'Url']
+            })
 
-        // for (const url of imgs) {
-        //   downloadImage(url)
-        // }
+            errorArr.forEach(e => {
+              table.push([e.file || '', e.url || ''])
+            })
+
+            console.log(table.toString())
+          }
+        })
       }
     )
   } catch (error) {
     console.log(error)
   }
 }
+
+var allSettled =
+  Promise.allSettled ||
+  function($) {
+    return Promise.all(
+      $.map(
+        function(value) {
+          return Promise.resolve(value)
+            .then(this.$)
+            .catch(this._)
+        },
+        {
+          $: function(value) {
+            return {
+              status: 'fulfilled',
+              value: value
+            }
+          },
+          _: function(reason) {
+            return {
+              status: 'rejected',
+              reason: reason
+            }
+          }
+        }
+      )
+    )
+  }
 
 generate()
