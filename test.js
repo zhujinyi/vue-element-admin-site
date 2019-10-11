@@ -4,6 +4,7 @@ const axios = require('axios')
 const mkdirp = require('mkdirp')
 const glob = require('glob')
 const commonMark = require('commonmark')
+const Listr = require('listr')
 
 const outputDir = './images'
 const inputDir = './docs/zh'
@@ -81,16 +82,35 @@ async function generate() {
       },
       async function(er, files) {
         let imgs = []
-        for (const file of files) {
-          const data = await readFile(`${inputDir}/${file}`)
-          imgs = imgs.concat(data)
-        }
+
+        const tasksList = files.map(file => {
+          // console.log(file)
+          // console.log('file')
+          return {
+            title: file,
+            task: async ctx => {
+              try {
+                const data = await readFile(`${inputDir}/${file}`)
+                imgs = imgs.concat(data)
+                return data
+              } catch (error) {
+                throw new Error(error)
+              }
+            }
+          }
+        })
+
+        const tasks = new Listr(tasksList, {
+          exitOnError: false
+        })
+
+        tasks.run()
 
         imgs = [...new Set(imgs)]
 
-        for (const url of imgs) {
-          downloadImage(url)
-        }
+        // for (const url of imgs) {
+        //   downloadImage(url)
+        // }
       }
     )
   } catch (error) {
